@@ -1,0 +1,10 @@
+# Working notes, not documentation
+.claude
+CLAUDE.md
+
+# Cargo build
+/target
+
+# IDE
+.idea
+.DS_Store
