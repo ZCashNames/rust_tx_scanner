@@ -7,9 +7,9 @@ edition = "2021"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tonic = { version = "0.14", features = ["tls-ring", "tls-native-roots", "channel", "gzip"] }
 futures = "0.3"
-lightwallet-protocol = "0.3.0"
-zcash_primitives = "0.30"
-zcash_protocol = "0.10.1"
+lightwallet-protocol = "0.4.0"
+zcash_primitives = "0.30.1"
+zcash_protocol = "0.10.6"
 zcash_address = "0.13"
 orchard = "0.15"
 zcash_note_encryption = "0.4"
