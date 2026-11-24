@@ -57,7 +57,7 @@ which is indistinguishable from "no payments arrived".
 | Command | Arguments | Purpose |
 |:---|:---|:---|
 | `scan` | `<START_BLOCK> <BLOCK_COUNT> [ALL]` | Scan a range for notes the key can decrypt. `ALL=1` also emits blocks with no matches. |
-| `validateaddress` | `<ADDRESS>` | Prints `true`/`false` — is this a valid Orchard Unified Address on this network? |
+| `validateaddress` | `<ADDRESS>` | Prints `true`/`false` — is this a valid Orchard Unified Address (`u1…`, ZIP 316 Revision 0) on this network? |
 | `gettx` | `<TX_HASH>` | Fetch one transaction; decrypts its notes when `--ivk` is given. |
 | `blockhash` | `<BLOCK_ID>` | Block hash at a height. |
 | `blockcount` | — | Current chain tip. |

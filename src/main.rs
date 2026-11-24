@@ -9,7 +9,9 @@ use lightwallet_protocol::{
 use tonic::codec::CompressionEncoding;
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
 
-use zcash_address::unified::{Address, Ufvk, Uivk, Receiver, Fvk, Ivk, Container, Encoding};
+use zcash_address::unified::{
+    Address, Ufvk, Uivk, Receiver, Fvk, Ivk, Container, Encoding, Revision,
+};
 use orchard::keys::{PreparedIncomingViewingKey, Scope, FullViewingKey, IncomingViewingKey};
 use orchard::note_encryption::IronwoodDomain;
 use zcash_protocol::consensus::{BranchId, BlockHeight, Network, Parameters};
@@ -108,9 +110,17 @@ fn orchard_address_from_ua(ua: &Address) -> Option<orchard::Address> {
 /// inside the zkVM (SP1 has no Pallas precompile). Being *stricter* is the safe
 /// direction: it can only reject a command early, never admit one that turns out to be
 /// unprovable and wedges the batch that carries it.
+///
+/// For the same reason only ZIP 316 Revision 0 (`u1…`) is accepted. The circuit is built
+/// on zcash_address 0.13, which knows no other: it cannot decode the Revision 2 addresses
+/// (`zu1…`, `tu1…`) this crate version can.
 fn address_is_valid(address: &str, network: Network) -> bool {
     match Address::decode(address) {
-        Ok((net, ua)) => net == network.network_type() && orchard_address_from_ua(&ua).is_some(),
+        Ok((net, revision, ua)) => {
+            revision == Revision::R0
+                && net == network.network_type()
+                && orchard_address_from_ua(&ua).is_some()
+        }
         Err(_) => false,
     }
 }
@@ -124,7 +134,7 @@ fn prepare_orchard_ivk(
     let mut key_payload: Option<Vec<u8>> = None;
 
     let key_net = if ivk_str.starts_with("uview") {
-        let (net, ufvk) = Ufvk::decode(ivk_str)
+        let (net, _, ufvk) = Ufvk::decode(ivk_str)
             .map_err(|e| format!("Failed to decode UFVK: {e:?}"))?;
         for fvk in ufvk.items() {
             if let Fvk::Orchard(data) = fvk {
@@ -134,7 +144,7 @@ fn prepare_orchard_ivk(
         }
         net
     } else if ivk_str.starts_with("uivk") {
-        let (net, uivk) = Uivk::decode(ivk_str)
+        let (net, _, uivk) = Uivk::decode(ivk_str)
             .map_err(|e| format!("Failed to decode UIVK: {e:?}"))?;
         for ivk in uivk.items() {
             if let Ivk::Orchard(data) = ivk {
@@ -690,7 +700,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 mod tests {
     use super::*;
     use orchard::keys::SpendingKey;
-    use zcash_address::unified::Address as UnifiedAddress;
+    use zcash_address::unified::{Address as UnifiedAddress, Uitem};
     use zcash_protocol::consensus::NetworkType;
 
     /// A real Orchard receiver, derived from a fixed spending key.
@@ -708,7 +718,13 @@ mod tests {
     }
 
     fn ua(receivers: Vec<Receiver>, net: NetworkType) -> String {
-        let addr = UnifiedAddress::try_from_items(receivers).expect("builds a unified address");
+        ua_of_revision(Revision::R0, receivers, net)
+    }
+
+    fn ua_of_revision(revision: Revision, receivers: Vec<Receiver>, net: NetworkType) -> String {
+        let items = receivers.into_iter().map(Uitem::Data).collect();
+        let addr =
+            UnifiedAddress::try_from_items(revision, items).expect("builds a unified address");
         // The same Encoding trait the gate decodes with, so the test exercises the real
         // bech32m + F4Jumble round trip rather than a hand-built string.
         addr.encode(&net)
@@ -767,6 +783,27 @@ mod tests {
         let testnet = ua(vec![orchard_receiver(0x13)], NetworkType::Test);
         assert!(!address_is_valid(&mainnet, Network::TestNetwork));
         assert!(!address_is_valid(&testnet, Network::MainNetwork));
+    }
+
+    #[test]
+    fn rejects_a_revision_2_address() {
+        // Well-formed, on the right network and with an Orchard receiver, but with a prefix the
+        // circuit does not know, so a batch that carried one could not be proved.
+        for (receivers, net, network, hrp) in [
+            (vec![orchard_receiver(0x15)], NetworkType::Main, Network::MainNetwork, "zu1"),
+            (
+                vec![orchard_receiver(0x15), Receiver::P2pkh([5u8; 20])],
+                NetworkType::Main,
+                Network::MainNetwork,
+                "tu1",
+            ),
+            (vec![orchard_receiver(0x15)], NetworkType::Test, Network::TestNetwork, "zutest1"),
+        ] {
+            let address = ua_of_revision(Revision::R2, receivers, net);
+            assert!(address.starts_with(hrp), "{address}");
+            assert!(UnifiedAddress::decode(&address).is_ok(), "{address} does not decode");
+            assert!(!address_is_valid(&address, network), "accepted {address}");
+        }
     }
 
     #[test]
@@ -890,6 +927,20 @@ mod tests {
         // select the wrong consensus branch and make scans return nothing.
         assert!(parse_network("tesnet").is_err());
         assert!(parse_network("regtest").is_err());
+    }
+
+    #[test]
+    fn knows_the_network_upgrades_that_are_active() {
+        // A transaction of an upgrade these crates do not know, or know by a placeholder id,
+        // fails to parse, and no block from the upgrade on can be scanned: NU7 on mainnet, which
+        // zcash_protocol 0.10 had at 0xffffffff and without a height.
+        let id = |network: Network, height: u32| {
+            u32::from(BranchId::for_height(&network, BlockHeight::from_u32(height)))
+        };
+        assert_eq!(id(Network::MainNetwork, 3_543_404), 0x37a5_165b);
+        assert_eq!(id(Network::MainNetwork, 3_543_405), 0x7719_0ad9);
+        assert_eq!(id(Network::TestNetwork, 4_465_025), 0x37a5_165b);
+        assert_eq!(id(Network::TestNetwork, 4_465_026), 0x7719_0ad9);
     }
 
     #[test]

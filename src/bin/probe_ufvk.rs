@@ -15,7 +15,7 @@ use orchard::keys::{FullViewingKey, IncomingViewingKey, Scope};
 
 /// Whether `ivk` can derive `address` — i.e. the key really controls it.
 fn controls(ivk: &IncomingViewingKey, address: &str) -> Option<bool> {
-    let (_net, ua) = Address::decode(address).ok()?;
+    let (_net, _, ua) = Address::decode(address).ok()?;
     let raw: [u8; 43] = ua.items().iter().find_map(|i| match i {
         Receiver::Orchard(d) => Some(*d),
         _ => None,
@@ -26,14 +26,14 @@ fn controls(ivk: &IncomingViewingKey, address: &str) -> Option<bool> {
 
 fn check_pairing(key: &str, address: &str) {
     let ivk = if key.starts_with("uview") {
-        Ufvk::decode(key).ok().and_then(|(_, k)| {
+        Ufvk::decode(key).ok().and_then(|(_, _, k)| {
             k.items().into_iter().find_map(|f| match f {
                 Fvk::Orchard(d) => FullViewingKey::from_bytes(&d).map(|fvk| fvk.to_ivk(Scope::External)),
                 _ => None,
             })
         })
     } else {
-        Uivk::decode(key).ok().and_then(|(_, k)| {
+        Uivk::decode(key).ok().and_then(|(_, _, k)| {
             k.items().into_iter().find_map(|i| match i {
                 Ivk::Orchard(d) => Option::from(IncomingViewingKey::from_bytes(&d)),
                 _ => None,
@@ -60,26 +60,28 @@ fn main() {
     let address = std::env::args().nth(2);
 
     if key.starts_with("uview") {
-        let (net, ufvk) = Ufvk::decode(&key).expect("decode UFVK");
+        let (net, _, ufvk) = Ufvk::decode(&key).expect("decode UFVK");
         println!("  UFVK, network {net:?}");
         for fvk in ufvk.items() {
             match fvk {
                 Fvk::Orchard(d) => println!("    Orchard (0x03)   {} bytes", d.len()),
                 Fvk::Sapling(d) => println!("    Sapling (0x02)   {} bytes", d.len()),
                 Fvk::P2pkh(d) => println!("    P2PKH   (0x00)   {} bytes", d.len()),
+                Fvk::P2sh(d) => println!("    P2SH    (0x01)   {} bytes", d.len()),
                 Fvk::Unknown { typecode, data } => {
                     println!("    Unknown (0x{typecode:02x})   {} bytes", data.len())
                 }
             }
         }
     } else if key.starts_with("uivk") {
-        let (net, uivk) = Uivk::decode(&key).expect("decode UIVK");
+        let (net, _, uivk) = Uivk::decode(&key).expect("decode UIVK");
         println!("  UIVK, network {net:?}");
         for ivk in uivk.items() {
             match ivk {
                 Ivk::Orchard(d) => println!("    Orchard (0x03)   {} bytes", d.len()),
                 Ivk::Sapling(d) => println!("    Sapling (0x02)   {} bytes", d.len()),
                 Ivk::P2pkh(d) => println!("    P2PKH   (0x00)   {} bytes", d.len()),
+                Ivk::P2sh(d) => println!("    P2SH    (0x01)   {} bytes", d.len()),
                 Ivk::Unknown { typecode, data } => {
                     println!("    Unknown (0x{typecode:02x})   {} bytes", data.len())
                 }
